@@ -1,6 +1,7 @@
-# Configuration settings for the FastAPI app
-
+from dotenv import load_dotenv
 import os
+
+load_dotenv() 
 
 class Settings:
     """Configuration settings for the application."""
@@ -10,5 +11,6 @@ class Settings:
     AWS_BUCKET_NAME = os.getenv("AWS_BUCKET_NAME")
     AWS_REGION = os.getenv("AWS_REGION")
     DATABASE_URL = os.getenv("DATABASE_URL")
+
 
 settings = Settings()

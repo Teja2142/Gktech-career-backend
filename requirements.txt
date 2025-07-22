@@ -6,3 +6,6 @@ pydantic
 sqlalchemy
 psycopg2-binary
 python-dotenv
+pymysql
+fastapi-sqlalchemy
+pydantic[email] 
