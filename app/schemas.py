@@ -2,6 +2,7 @@ from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
 from fastapi import FastAPI, Form, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
+from typing import Optional
 
 class SubmissionCreate(BaseModel):
     full_name: str
@@ -27,10 +28,14 @@ class SubmissionRequest(BaseModel):
     comments: Optional[str] = Field(None, description="Additional comments", examples=["Open to remote or hybrid roles"])
     resume: UploadFile = Field(..., description="Resume file (PDF/DOCX)")
 
+
+
 class SubmissionResponse(BaseModel):
     id: str
     resume_url: str
+    sent_to_email: Optional[str] = None  # now optional
 
     model_config = {
         "from_attributes": True
     }
+
