@@ -53,14 +53,16 @@ async def submit_form(
             host = request.headers.get("x-forwarded-host") or request.headers.get("host")
             if host:
                 origin = f"http://{host}"
-
         if not origin:
             raise HTTPException(status_code=400, detail="Unable to determine request origin or host.")
+
+        print(f"Request origin: {origin}")
 
         domain = urlparse(origin).hostname
         if domain and domain.startswith("www."):
             domain = domain[4:]
 
+        print(f"Extracted domain: {domain}")
 
         file_bytes = await resume.read()
 
@@ -81,15 +83,14 @@ async def submit_form(
             availability=availability,
             comments=comments,
             resume_url=resume_url,
-            origin_domain=domain
+            origin_domain=domain,
         )
         db.add(submission)
         db.commit()
         db.refresh(submission)
 
-
-        # Get recipient email for response
-        recipient_email = email_service.recipient_map.get(domain)
+        # Get recipient email for response (resolve via service)
+        recipient_email = email_service.get_recipient(domain)
 
         # Schedule email sending in background
         background_tasks.add_task(email_service.send_email, submission, resume.filename, file_bytes)

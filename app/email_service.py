@@ -5,7 +5,8 @@ from email.mime.base import MIMEBase
 from email import encoders
 from .models import Submission
 import os
-from typing import Dict
+from typing import Dict, Optional
+from .company_config import CompanyConfig
 
 
 class EmailService:
@@ -15,12 +16,41 @@ class EmailService:
         self.smtp_user = os.getenv("SMTP_USER")
         self.smtp_password = os.getenv("SMTP_PASSWORD")
 
-        # Map domains to recipient HR emails
+        # Map domains to recipient HR emails (can be overridden by env)
         self.recipient_map: Dict[str, str] = {
+            "kgktechnologies.com": os.getenv("GK_EMAIL"),
             "gktechnologies.com": os.getenv("GK_EMAIL"),
             "dglobaltech.com": os.getenv("DBTECH_EMAIL"),
+            "dglobal.com": os.getenv("DBTECH_EMAIL"),
             "localhost": os.getenv("SMTP_USER"),  # For local testing
         }
+
+    def get_recipient(self, domain: Optional[str]) -> Optional[str]:
+        """Resolve HR recipient for a domain using multiple strategies.
+
+        1. Exact match in recipient_map
+        2. CompanyConfig mapping
+        3. Suffix match (example: domain endswith known key)
+        """
+        if not domain:
+            return None
+
+        # exact lookup
+        recipient = self.recipient_map.get(domain)
+        if recipient:
+            return recipient
+
+        # company config mapping
+        recipient = CompanyConfig.get_hr_email(domain)
+        if recipient:
+            return recipient
+
+        # try suffix matches (e.g., submitted domain may include subdomain)
+        for k, v in self.recipient_map.items():
+            if domain.endswith(k):
+                return v
+
+        return None
 
     def _create_email_content(self, submission: Submission, recipient_email: str) -> MIMEMultipart:
         msg = MIMEMultipart()
@@ -57,9 +87,9 @@ class EmailService:
         part.add_header("Content-Disposition", f"attachment; filename={filename}")
         msg.attach(part)
 
-    async def send_email(self, submission: Submission, filename: str, file_bytes: bytes):
+    def send_email(self, submission: Submission, filename: str, file_bytes: bytes) -> bool:
         try:
-            recipient_email = self.recipient_map.get(submission.origin_domain)
+            recipient_email = self.get_recipient(submission.origin_domain)
             if not recipient_email:
                 raise ValueError(f"No recipient email configured for domain: {submission.origin_domain}")
 
@@ -68,11 +98,14 @@ class EmailService:
 
             with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
                 server.starttls()
-                server.login(self.smtp_user, self.smtp_password)
-                server.send_message(msg)
+                if self.smtp_user and self.smtp_password:
+                    server.login(self.smtp_user, self.smtp_password)
+                server.sendmail(msg["From"], [recipient_email], msg.as_string())
 
             print(f"✅ Email sent to {recipient_email}")
+            return True
         except Exception as e:
             print(f"Error sending email: {str(e)}")
+            return False
 
 email_service = EmailService()
