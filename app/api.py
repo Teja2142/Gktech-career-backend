@@ -2,10 +2,11 @@ from typing import Optional
 from urllib.parse import urlparse
 import uuid
 from fastapi import FastAPI, UploadFile, File, Form, Depends, Request, APIRouter, BackgroundTasks, HTTPException
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from . import s3_utils, models
 from .database import SessionLocal, engine
-from .models import Submission
+from .models import Submission,Contact
 from .schemas import SubmissionResponse
 from .email_service import email_service
 from fastapi.middleware.cors import CORSMiddleware
@@ -48,21 +49,13 @@ async def submit_form(
         if not resume.filename.lower().endswith((".pdf", ".docx")):
             raise HTTPException(status_code=400, detail="Resume must be a PDF or DOCX file.")
 
-        origin = request.headers.get("origin") or request.headers.get("referer")
-        if not origin:
-            host = request.headers.get("x-forwarded-host") or request.headers.get("host")
-            if host:
-                origin = f"http://{host}"
-        if not origin:
-            raise HTTPException(status_code=400, detail="Unable to determine request origin or host.")
-
-        print(f"Request origin: {origin}")
-
-        domain = urlparse(origin).hostname
-        if domain and domain.startswith("www."):
+        origin = get_request_origin(request)
+        domain = urlparse(origin).hostname or ""
+        if domain.startswith("www."):
             domain = domain[4:]
 
-        print(f"Extracted domain: {domain}")
+        if domain:
+            print(f"Extracted domain: {domain}")
 
         file_bytes = await resume.read()
 
@@ -92,7 +85,7 @@ async def submit_form(
         # Get recipient email for response (resolve via service)
         recipient_email = email_service.get_recipient(domain)
 
-        # Schedule email sending in background
+        # Schedule email sending in background (pass domain if needed)
         background_tasks.add_task(email_service.send_email, submission, resume.filename, file_bytes)
 
         return SubmissionResponse(id=submission.id, resume_url=resume_url, sent_to_email=recipient_email)
@@ -102,6 +95,67 @@ async def submit_form(
     except Exception as exc:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+
+
+
+
+@router.post("/contact", summary="Contact form", tags=["Contact"])
+async def contact_form(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    full_name: str = Form(...),
+    company: Optional[str] = Form(None),
+    inquiry_type: Optional[str] = Form(None),
+    email: Optional[str] = Form(None),
+    message: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+):
+    try:
+        # determine origin domain for contact
+        origin = get_request_origin(request)
+        domain = urlparse(origin).hostname or ""
+        if domain.startswith("www."):
+            domain = domain[4:]
+
+        contact = Contact(
+            id=str(uuid.uuid4()),
+            full_name=full_name,
+            company=company,
+            inquiry_type=inquiry_type,
+            email=email,
+            message=message,
+            origin_domain=domain
+        )
+        db.add(contact)
+        db.commit()
+        db.refresh(contact)
+
+        # send email in background (pass domain so receiver resolves correctly)
+        background_tasks.add_task(email_service.send_contact_email, contact, domain)
+
+        return JSONResponse(status_code=201, content={"id": contact.id})
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(exc))
+    
+
+
+
+
+def get_request_origin(request: Request) -> str:
+    origin = request.headers.get("origin") or request.headers.get("referer")
+    if not origin:
+        host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+        if host:
+            origin = f"http://{host}"
+    if not origin:
+        raise HTTPException(status_code=400, detail="Unable to determine request origin or host.")
+    return origin
+
+
+
 
 
 app = FastAPI(
@@ -130,5 +184,3 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 app.include_router(router)
-
-
