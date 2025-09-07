@@ -108,4 +108,72 @@ class EmailService:
             print(f"Error sending email: {str(e)}")
             return False
 
+    def _send_smtp_message(self, msg: MIMEMultipart, recipients) -> bool:
+        """Open SMTP connection, start TLS, optionally login, send message."""
+        try:
+            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
+                server.ehlo()
+                server.starttls()
+                server.ehlo()
+                if self.smtp_user and self.smtp_password:
+                    # login per connection; required for authenticated SMTP servers
+                    server.login(self.smtp_user, self.smtp_password)
+                server.sendmail(msg["From"], recipients, msg.as_string())
+            return True
+        except Exception as exc:
+            print(f"SMTP send failed: {exc}")
+            return False
+
+    def send_contact_email(self, contact, domain: Optional[str] = None) -> bool:
+        """Send contact form email.
+
+        If `domain` is provided, resolve the HR recipient for that domain. Otherwise
+        fall back to CONTACT_RECEIVER or SMTP_USER.
+        """
+        # Determine recipient: try domain-based routing first
+        recipient = None
+        if domain:
+            recipient = self.get_recipient(domain)
+
+        # If no recipient from domain, check environment fallback
+        if not recipient:
+            recipient = os.getenv("CONTACT_RECEIVER") or self.smtp_user
+
+        if not recipient:
+            print("No contact receiver configured; skipping contact email.")
+            return False
+
+        msg = MIMEMultipart()
+        msg["From"] = self.smtp_user or "no-reply@example.com"
+        msg["To"] = recipient
+        msg["Subject"] = f"Website Contact Form: {contact.full_name}"
+
+        # Build a clean HTML table for the contact details
+        origin_info = domain or getattr(contact, "origin_domain", "")
+        html = f"""
+        <html>
+        <body>
+        <h2>Contact Submission from {origin_info}</h2>
+        <table border="1" cellpadding="6" cellspacing="0" style="border-collapse: collapse; font-family: Arial, sans-serif;">
+          <tr><th align="left">Field</th><th align="left">Value</th></tr>
+          <tr><td>Full name</td><td>{contact.full_name}</td></tr>
+          <tr><td>Company</td><td>{getattr(contact, 'company', '')}</td></tr>
+          <tr><td>Inquiry type</td><td>{getattr(contact, 'inquiry_type', '')}</td></tr>
+          <tr><td>Email</td><td>{getattr(contact, 'email', '')}</td></tr>
+          <tr><td>Message</td><td>{getattr(contact, 'message', '')}</td></tr>
+          <tr><td>Origin domain</td><td>{origin_info}</td></tr>
+        </table>
+        </body>
+        </html>
+        """
+
+        msg.attach(MIMEText(html, "html"))
+
+        sent = self._send_smtp_message(msg, [recipient])
+        if sent:
+            print(f"✅ Contact email sent to {recipient}")
+        else:
+            print(f"Failed to send contact email to {recipient}")
+        return sent
+
 email_service = EmailService()

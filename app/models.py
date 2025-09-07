@@ -23,3 +23,16 @@ class Submission(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
 
+class Contact(Base):
+    __tablename__ = "contacts"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), nullable=False)
+    full_name = Column(String(255), nullable=False)
+    company = Column(String(255))
+    inquiry_type = Column(String(100))
+    email = Column(String(320))
+    message = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    origin_domain = Column(String(255))
+
+
