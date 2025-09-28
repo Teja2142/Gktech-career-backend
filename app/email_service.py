@@ -90,8 +90,13 @@ class EmailService:
     def send_email(self, submission: Submission, filename: str, file_bytes: bytes) -> bool:
         try:
             recipient_email = self.get_recipient(submission.origin_domain)
+            # If no domain-specific recipient found, fall back to a configured contact receiver or the SMTP user
             if not recipient_email:
-                raise ValueError(f"No recipient email configured for domain: {submission.origin_domain}")
+                recipient_email = os.getenv("CONTACT_RECEIVER") or self.smtp_user
+                if not recipient_email:
+                    # Nothing to send to; log and exit
+                    print(f"No recipient email configured for domain: {submission.origin_domain}")
+                    return False
 
             msg = self._create_email_content(submission, recipient_email)
             self._attach_resume_from_bytes(msg, filename, file_bytes)
